@@ -5,6 +5,7 @@ description = ""
 authors = ["Stijn Smits"]
 license = "MIT"
 readme = "README.md"
+package-mode = false  # 禁用打包模式
 
 [tool.poetry.dependencies]
 python = "^3.10"
@@ -20,6 +21,7 @@ scikit-image = "^0.24.0"
 openai = "^1.52.2"
 pytesseract = "^0.3.13"
 easyocr = "^1.7.2"
+flask = "^3.1.0"
 
 [build-system]
 requires = ["poetry-core"]

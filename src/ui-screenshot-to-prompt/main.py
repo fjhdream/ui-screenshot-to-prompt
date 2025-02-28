@@ -45,12 +45,13 @@ openai_client, super_prompt_function = load_and_initialize_clients()
 # Global variables for UI-selected settings
 DETECTION_METHOD = None
 DETECTION_TERM = None
-
+PROMPT_CHOICE = None
 def set_detection_method(mode: str):
     """Configure detection method and terminology"""
-    global DETECTION_METHOD, DETECTION_TERM
+    global DETECTION_METHOD, DETECTION_TERM, PROMPT_CHOICE
     DETECTION_METHOD = mode.lower()
     DETECTION_TERM = "region" if DETECTION_METHOD == "basic" else "component"
+    PROMPT_CHOICE = "extensive"
     logger.info(f"Detection method set to: {DETECTION_METHOD} ({DETECTION_TERM}s)")
 
 def get_detection_method() -> str:
@@ -186,7 +187,7 @@ def process_image(image_path: str, min_area: Optional[float] = None, max_detecti
             cv2.imwrite(output_path, detection_img)
         
         # Process detections in parallel
-        with ThreadPoolExecutor(max_workers=5) as executor:
+        with ThreadPoolExecutor(max_workers=50) as executor:
             detection_analyses = list(executor.map(analyze_detection, analysis_args))
         
         # Link analyses to detections
@@ -459,8 +460,8 @@ def launch_gradio_interface():
             show_progress=True,
             api_name="copy_analysis"
         )
-    
-    iface.launch()
+
+    iface.launch(server_name="0.0.0.0", server_port=7860)
 
 def main():
     logger.info("Starting image processing")

@@ -5,6 +5,9 @@ import logging
 from openai import OpenAI
 from anthropic import Anthropic
 
+# Load environment variables
+load_dotenv()
+
 # Initialize logger
 logger = logging.getLogger(__name__)
 
