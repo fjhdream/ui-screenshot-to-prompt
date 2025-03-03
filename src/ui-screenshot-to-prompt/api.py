@@ -8,10 +8,38 @@ import sys
 import argparse
 import signal
 import atexit
+import logging
+from logging.handlers import RotatingFileHandler
 from gunicorn.app.base import BaseApplication
 from main import process_image, set_detection_method  # 导入现有的处理函数和设置方法
 
 app = Flask(__name__)
+
+def setup_logging(log_file):
+    """设置日志系统"""
+    # 创建日志格式
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+
+    # 设置文件处理器
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=10 * 1024 * 1024,  # 10MB
+        backupCount=5,
+    )
+    file_handler.setFormatter(formatter)
+
+    # 获取根日志记录器
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    root_logger.addHandler(file_handler)
+
+    # 设置 Flask 应用的日志处理
+    app.logger.setLevel(logging.INFO)
+    if not app.debug:
+        app.logger.addHandler(file_handler)
+
 
 def generate_temp_filepath():
     """生成临时文件路径"""
@@ -206,7 +234,7 @@ if __name__ == "__main__":
     pid_file = os.path.join(base_dir, "api_server.pid")
 
     if args.daemon:
-        # 如果是后台运行模式，将输出重定向到日志文件
+        # 如果是后台运行模式，创建日志目录
         log_dir = os.path.join(base_dir, "logs")
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
@@ -215,12 +243,11 @@ if __name__ == "__main__":
         access_log = os.path.join(log_dir, "access.log")
         error_log = os.path.join(log_dir, "error.log")
 
+        # 设置日志系统
+        setup_logging(log_file)
+
         # 将进程转为守护进程
         daemonize()
-
-        # 重定向标准输出和错误
-        sys.stdout = open(log_file, "a", buffering=1)
-        sys.stderr = sys.stdout
 
         # 注册信号处理器
         signal.signal(signal.SIGTERM, signal_handler)
@@ -232,25 +259,35 @@ if __name__ == "__main__":
         # 创建 PID 文件
         create_pid_file(pid_file)
 
-        print(f"服务器正在后台启动...")
+        logging.info("服务器正在后台启动...")
 
     try:
         # Gunicorn 配置
+        cpu_count = multiprocessing.cpu_count()
         options = {
             "bind": "0.0.0.0:5003",
-            "workers": multiprocessing.cpu_count() * 2 + 1,
+            "workers": min(cpu_count + 1, 4),  # 减少工作进程数量，避免内存过载
             "worker_class": "sync",
-            "timeout": 120,
+            "timeout": 300,  # 增加超时时间到 300 秒
+            "graceful_timeout": 120,  # 优雅退出超时时间
+            "keepalive": 5,  # keepalive 连接超时时间
+            "max_requests": 1000,  # 工作进程处理多少请求后自动重启
+            "max_requests_jitter": 50,  # 添加随机抖动，避免所有进程同时重启
             "accesslog": access_log if args.daemon else "-",
             "errorlog": error_log if args.daemon else "-",
             "loglevel": "info",
             "daemon": True if args.daemon else False,
             "capture_output": True,
             "pidfile": pid_file if args.daemon else None,
+            # 限制内存使用
+            "worker_tmp_dir": "/dev/shm",  # 使用内存文件系统来减少磁盘I/O
+            "limit_request_line": 4094,
+            "limit_request_fields": 100,
+            "limit_request_field_size": 8190,
         }
 
         if args.daemon:
-            print(f"""
+            logging.info(f"""
 =================================================
 服务器已成功启动在后台运行！
 
@@ -260,6 +297,9 @@ if __name__ == "__main__":
   - 访问日志：access.log
   - 错误日志：error.log
 - 服务地址：http://0.0.0.0:5003
+- 工作进程数：{options["workers"]}
+- 请求超时时间：{options["timeout"]}秒
+- 每进程最大请求数：{options["max_requests"]}
 
 要检查服务状态：
     ps aux | grep api.py
@@ -276,7 +316,7 @@ if __name__ == "__main__":
 
         StandaloneApplication(app, options).run()
     except Exception as e:
-        print(f"启动服务器时发生错误: {e}")
+        logging.error(f"启动服务器时发生错误: {e}")
         if args.daemon:
             cleanup()
         sys.exit(1)
