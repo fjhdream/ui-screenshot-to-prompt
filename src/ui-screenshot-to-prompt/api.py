@@ -3,6 +3,8 @@ from flask import Flask, request, jsonify
 from PIL import Image
 import os
 import uuid
+import multiprocessing
+from gunicorn.app.base import BaseApplication
 from main import process_image, set_detection_method  # 导入现有的处理函数和设置方法
 
 app = Flask(__name__)
@@ -105,6 +107,32 @@ def process_image_url_api():
             cleanup_temp_file(temp_image_path)
         return jsonify({"error": str(e)}), 500
 
+class StandaloneApplication(BaseApplication):
+    """Gunicorn 应用程序封装类"""
+
+    def __init__(self, app, options=None):
+        self.options = options or {}
+        self.application = app
+        super().__init__()
+
+    def load_config(self):
+        for key, value in self.options.items():
+            if key in self.cfg.settings and value is not None:
+                self.cfg.set(key.lower(), value)
+
+    def load(self):
+        return self.application
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5003)
+    # Gunicorn 配置
+    options = {
+        "bind": "0.0.0.0:5003",
+        "workers": multiprocessing.cpu_count() * 2 + 1,  # 建议的工作进程数
+        "worker_class": "sync",  # 使用同步工作进程
+        "timeout": 120,  # 请求超时时间
+        "accesslog": "-",  # 访问日志输出到标准输出
+        "errorlog": "-",  # 错误日志输出到标准输出
+        "loglevel": "info",
+    }
+
+    StandaloneApplication(app, options).run()
