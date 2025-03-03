@@ -13,6 +13,12 @@ from logging.handlers import RotatingFileHandler
 from gunicorn.app.base import BaseApplication
 from main import process_image, set_detection_method  # 导入现有的处理函数和设置方法
 
+try:
+    import uvicorn
+except ImportError:
+    print("请先安装 uvicorn: pip install uvicorn")
+    sys.exit(1)
+
 app = Flask(__name__)
 
 def setup_logging(log_file):
@@ -267,7 +273,7 @@ if __name__ == "__main__":
         options = {
             "bind": "0.0.0.0:5003",
             "workers": min(cpu_count + 1, 4),  # 减少工作进程数量，避免内存过载
-            "worker_class": "sync",
+            "worker_class": "uvicorn.workers.UvicornWorker",  # 使用 uvicorn 异步工作进程
             "timeout": 300,  # 增加超时时间到 300 秒
             "graceful_timeout": 120,  # 优雅退出超时时间
             "keepalive": 5,  # keepalive 连接超时时间
