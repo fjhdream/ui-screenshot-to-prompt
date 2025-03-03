@@ -12,6 +12,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 from gunicorn.app.base import BaseApplication
 from main import process_image, set_detection_method  # 导入现有的处理函数和设置方法
+import time
 
 try:
     import uvicorn
@@ -228,9 +229,55 @@ def cleanup():
         sys.stderr.write(f"清理 PID 文件失败: {e}\n")
 
 
+def stop_server():
+    """停止运行中的服务器"""
+    try:
+        if not os.path.exists(pid_file):
+            logging.error("找不到 PID 文件，服务可能没有在运行")
+            return False
+
+        with open(pid_file, "r") as f:
+            pid = int(f.read().strip())
+
+        # 检查进程是否存在
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            logging.error("服务进程不存在，清理 PID 文件")
+            cleanup()
+            return False
+
+        # 发送终止信号
+        logging.info(f"正在停止服务 (PID: {pid})...")
+        os.kill(pid, signal.SIGTERM)
+
+        # 等待进程结束
+        max_wait = 10  # 最多等待10秒
+        while max_wait > 0:
+            try:
+                os.kill(pid, 0)
+                time.sleep(1)
+                max_wait -= 1
+            except OSError:
+                logging.info("服务已成功停止")
+                return True
+
+        # 如果进程仍然存在，强制结束
+        if max_wait == 0:
+            logging.warning("服务未能正常停止，正在强制终止...")
+            os.kill(pid, signal.SIGKILL)
+            time.sleep(1)
+
+        return True
+    except Exception as e:
+        logging.error(f"停止服务时发生错误: {e}")
+        return False
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="UI Screenshot to Prompt API Server")
     parser.add_argument("--daemon", action="store_true", help="在后台运行服务")
+    parser.add_argument("--kill", action="store_true", help="停止正在运行的后台服务")
     args = parser.parse_args()
 
     # 获取当前目录的绝对路径
@@ -238,6 +285,17 @@ if __name__ == "__main__":
 
     # PID 文件路径
     pid_file = os.path.join(base_dir, "api_server.pid")
+
+    # 如果指定了 --kill 参数
+    if args.kill:
+        # 设置基本的日志配置
+        logging.basicConfig(
+            level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+        )
+        if stop_server():
+            sys.exit(0)
+        else:
+            sys.exit(1)
 
     if args.daemon:
         # 如果是后台运行模式，创建日志目录
