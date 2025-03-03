@@ -330,8 +330,8 @@ if __name__ == "__main__":
         cpu_count = multiprocessing.cpu_count()
         options = {
             "bind": "0.0.0.0:5003",
-            "workers": min(cpu_count + 1, 4),  # 减少工作进程数量，避免内存过载
-            "worker_class": "uvicorn.workers.UvicornWorker",  # 使用 uvicorn 异步工作进程
+            "workers": min(cpu_count + 2, 6),  # 减少工作进程数量，避免内存过载
+            "worker_class": "sync",  # 使用同步工作进程
             "timeout": 300,  # 增加超时时间到 300 秒
             "graceful_timeout": 120,  # 优雅退出超时时间
             "keepalive": 5,  # keepalive 连接超时时间
