@@ -2,7 +2,9 @@ from typing import List, Callable, Tuple, Optional
 from dotenv import load_dotenv
 import os
 import logging
-from openai import OpenAI
+import json
+import boto3
+from openai import OpenAI, AzureOpenAI
 from anthropic import Anthropic
 
 # Load environment variables
@@ -53,24 +55,71 @@ def load_and_initialize_clients() -> Tuple[OpenAI, Optional[Callable[[str], str]
     load_dotenv()
     logger.info("Environment variables loaded")
 
-    # Retrieve API keys from environment variables
-    openai_api_key = os.getenv("OPENAI_API_KEY")
-    openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
+    # Retrieve API keys and credentials from environment variables
+    aws_access_key = os.getenv("AWS_ACCESS_KEY_ID")
+    aws_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+    aws_region = os.getenv("AWS_REGION", "us-east-1")
     anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
+    openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
 
-    # Check if OpenAI API key is available
-    if not openai_api_key:
-        logger.error("OPENAI_API_KEY is not set in the environment variables.")
-        raise ValueError("Missing OpenAI API key")
+    # Azure OpenAI 配置
+    azure_api_key = os.getenv("AZURE_OPENAI_API_KEY")
+    azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+    azure_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+    azure_api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
 
-    # Initialize the OpenAI client
-    openai_client = OpenAI(api_key=openai_api_key)
-    logger.info("OpenAI client initialized")
+    # 初始化 OpenAI 客户端（优先使用标准 OpenAI，如果没有则使用 Azure OpenAI）
+    if azure_api_key and azure_endpoint:
+        openai_client = AzureOpenAI(
+            api_key=azure_api_key,
+            api_version=azure_api_version,
+            azure_endpoint=azure_endpoint,
+        )
+        logger.info("Azure OpenAI client initialized")
+    else:
+        logger.error(
+            "Neither OpenAI API key nor Azure OpenAI credentials are set in the environment variables."
+        )
+        raise ValueError("Missing OpenAI or Azure OpenAI credentials")
 
     # Initialize super prompt function
     super_prompt_function: Optional[Callable[[str], str]] = None
 
-    if anthropic_api_key:
+    # 优先使用 AWS Bedrock
+    if aws_access_key and aws_secret_key:
+        try:
+            bedrock_runtime = boto3.client(
+                service_name="bedrock-runtime",
+                aws_access_key_id=aws_access_key,
+                aws_secret_access_key=aws_secret_key,
+                region_name=aws_region,
+            )
+
+            def bedrock_super_prompt(prompt: str) -> str:
+                body = json.dumps(
+                    {
+                        "anthropic_version": "bedrock-2023-05-31",
+                        "max_tokens": 8096,
+                        "messages": [{"role": "user", "content": prompt}],
+                    }
+                )
+
+                response = bedrock_runtime.invoke_model(
+                    modelId="anthropic.claude-3-5-sonnet-20241022-v2:0", body=body
+                )
+                logger.info("Bedrock Called")
+                response_body = json.loads(response["body"].read())
+                return response_body["content"][0]["text"]
+
+            super_prompt_function = bedrock_super_prompt
+            logger.info("AWS Bedrock client initialized and set as super prompt client")
+        except Exception as e:
+            logger.error(f"Failed to initialize AWS Bedrock client: {str(e)}")
+            # 如果 AWS Bedrock 初始化失败，继续尝试其他选项
+            super_prompt_function = None
+
+    # 如果没有 AWS Bedrock，尝试使用 Anthropic
+    elif anthropic_api_key:
         anthropic_client = Anthropic(api_key=anthropic_api_key)
         
         def anthropic_super_prompt(prompt: str) -> str:
@@ -79,10 +128,13 @@ def load_and_initialize_clients() -> Tuple[OpenAI, Optional[Callable[[str], str]
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=4096 
             )
+            logger.info("Anthropic Called")
             return response.content[0].text
 
         super_prompt_function = anthropic_super_prompt
         logger.info("Anthropic client initialized and set as super prompt client")
+
+    # 如果前两个都没有，尝试使用 OpenRouter
     elif openrouter_api_key:
         openrouter_client = OpenAI(
             base_url="https://openrouter.ai/api/v1",
@@ -95,6 +147,7 @@ def load_and_initialize_clients() -> Tuple[OpenAI, Optional[Callable[[str], str]
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=4096 
             )
+            logger.info("OpenRouter Called")
             return response.choices[0].message.content
 
         super_prompt_function = openrouter_super_prompt
