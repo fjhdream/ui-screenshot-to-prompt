@@ -4,6 +4,8 @@ import os
 import logging
 import json
 import boto3
+import uuid
+import shutil
 from openai import OpenAI, AzureOpenAI
 from anthropic import Anthropic
 
@@ -24,6 +26,26 @@ MAX_UI_COMPONENTS = 6
 
 MIN_REGION_WIDTH_SIMPLE = 200
 MIN_REGION_HEIGHT_SIMPLE = 200
+
+def generate_temp_dir() -> str:
+    """生成临时目录路径"""
+    base_dir = "split_detections"
+    if not os.path.exists(base_dir):
+        os.makedirs(base_dir)
+    temp_dir = os.path.join(base_dir, str(uuid.uuid4()))
+    os.makedirs(temp_dir)
+    return temp_dir
+
+
+def cleanup_temp_dir(dir_path: str) -> None:
+    """清理临时目录"""
+    try:
+        if os.path.exists(dir_path):
+            shutil.rmtree(dir_path)
+            logger.info(f"Cleaned up temporary directory: {dir_path}")
+    except Exception as e:
+        logger.error(f"Failed to cleanup temporary directory {dir_path}: {str(e)}")
+
 
 def set_detection_method(method: str):
     """Update the detection method configuration"""

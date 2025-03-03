@@ -20,6 +20,8 @@ from config import (
     MIN_COMPONENT_WIDTH_ADVANCED,
     MIN_COMPONENT_HEIGHT_ADVANCED,
     MAX_UI_COMPONENTS,
+    generate_temp_dir,
+    cleanup_temp_dir,
 )
 
 from detect_components import create_detector  # Only import what we use
@@ -149,8 +151,8 @@ def analyze_detection(args):
 def process_image(image_path: str, min_area: Optional[float] = None, max_detections: int = MAX_UI_COMPONENTS):
     """Main function to process and analyze an image"""
     try:
-        output_dir = "split_detections"
-        os.makedirs(output_dir, exist_ok=True)
+        # 生成唯一的临时目录
+        output_dir = generate_temp_dir()
         
         # Pass max_detections to create_detector
         detector = create_detector(
@@ -211,11 +213,17 @@ def process_image(image_path: str, min_area: Optional[float] = None, max_detecti
             detections,
             os.path.join(output_dir, "visualization.png")
         )
-        
+
+        # 清理临时目录
+        cleanup_temp_dir(output_dir)
+
         logger.info("Image processing completed successfully")
         return main_design_choices, descriptions, final_analysis
         
     except Exception as e:
+        # 确保在发生异常时也清理临时目录
+        if "output_dir" in locals():
+            cleanup_temp_dir(output_dir)
         logger.error(f"Error processing image: {str(e)}", exc_info=True)
         return "Error processing image", [], "Error in final analysis"
 
