@@ -343,8 +343,6 @@ if __name__ == "__main__":
             "daemon": True if args.daemon else False,
             "capture_output": True,
             "pidfile": pid_file if args.daemon else None,
-            # 限制内存使用
-            "worker_tmp_dir": "/dev/shm",  # 使用内存文件系统来减少磁盘I/O
             "limit_request_line": 4094,
             "limit_request_fields": 100,
             "limit_request_field_size": 8190,
